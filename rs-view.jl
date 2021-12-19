@@ -130,14 +130,41 @@ function getframes()
         # println("Timestamp: ", frame_timestamp)
         # println("Timestamp domain: ", frame_timestamp_domain_str)
         # println("Time of arrival: \n", frame_metadata_time_of_arrival)
-        frm = reinterpret(Gray{N0f8}, permutedims(unsafe_wrap(Matrix{UInt8}, rgb_frame_data_ptr, myshape)))
+
+        # frm = reinterpret(Gray{N0f8}, permutedims(unsafe_wrap(Matrix{UInt8}, rgb_frame_data_ptr, myshape)))
+        frm = reinterpret(Gray{N0f8}, unsafe_wrap(Matrix{UInt8}, rgb_frame_data_ptr, myshape))
 
         rs2_release_frame(frame)
         frm
     end
+    out = [Float32.(theframes[1]');Float32.(theframes[2]')]
+    
     rs2_release_frame(frames)
-    theframes
+    # theframes
+    out
 end
+
+struct BGmodel
+    μ
+    ρ
+    ϵfg
+end
+
+function mahalanobispoisson(x, S)
+    x * (x / S - 2) + S
+end
+
+FULL_WELL_CAPACITY = 16000/255.0
+THRESHOLD = 3.0
+function detect(bgmodel, img)
+    jj,kk = size(img)
+    [mahalanobispoisson(img[j,k], bgmodel.μ[j,k]) * FULL_WELL_CAPACITY > THRESHOLD^2 for j in 1:jj, k in 1:kk]
+end
+
+function update(bgmodel, img)
+    bgmodel.μ .= bgmodel.μ + bgmodel.ρ * (img - bgmodel.μ)
+end
+
 
 # mydata = [getframes() for it in 1:128]
 
@@ -152,20 +179,33 @@ end
 # push!(s1, i1)
 # push!(s2, i2)
 
-i1,i2 = getframes()
-i12 = [i1 i2]
-c1 = imshow(i12)["gui"]["canvas"]
-s1 = Signal(i12)
+# i1,i2 = getframes()
+# i12 = [i1 i2]
+i12 = reshape(getframes(), :, 1280)
+b1 = BGmodel(i12, 0.01, 0.1)
+fg = detect(b1, i12)
+ii = [i12 b1.μ fg]
+c1 = imshow(ii)["gui"]["canvas"]
+s1 = Signal(ii)
 imshow(c1, s1)
 
 # for x in 1:120
-aa = @async while true
-    i1,i2 = getframes()
-    push!(s1, [i1 i2])
-    sleep(0.1)
+@async while true
+    i12 = reshape(getframes(), :, 1280)
+    update(b1, i12)
+    fg = detect(b1, i12)
+    ii = [i12 b1.μ fg]
+    push!(s1, ii)
+    # push!(s1, i12)
+    # push!(s1, b1.μ)
+    sleep(0.01)
 end
 
 # i1,i2 = getframes(); push!(s1, [i1 i2])
 
 # push!(imgsig, newimg)
+
+
+
+
 
